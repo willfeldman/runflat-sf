@@ -2,6 +2,8 @@
 
 A responsive, offline-friendly route planning demo for finding lower-climb runs in San Francisco.
 
+**Live site:** https://willfeldman.github.io/runflat-sf/
+
 ## Run locally
 
 ```bash
