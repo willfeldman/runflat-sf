@@ -117,8 +117,9 @@
           <div class="inline-message" id="inlineMessage" role="status" aria-live="polite" hidden></div>
           <button class="plan-button" id="planButton" type="button" disabled>
             <span class="plan-label">Choose a start and end</span>
-            <span class="plan-loading"><span class="spinner"></span>Comparing elevation…</span>
+            <span class="plan-loading"><span class="spinner"></span>Optimizing routes…</span>
           </button>
+          <p class="optimizer-status" id="optimizerStatus" role="status" aria-live="polite" hidden></p>
 
           <section class="route-results" id="routeResults" aria-labelledby="resultTitle" hidden>
             <div class="result-heading">
@@ -168,6 +169,7 @@
     </div>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+    <script src="optimizer.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

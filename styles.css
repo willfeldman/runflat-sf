@@ -152,6 +152,7 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border: 4px s
 .plan-loading { display: none; align-items: center; justify-content: center; gap: 9px; }
 .plan-button.loading .plan-label { display: none; }
 .plan-button.loading .plan-loading { display: flex; }
+.optimizer-status { min-height: 16px; margin: 8px 2px 0; color: var(--muted); font-size: 9.5px; line-height: 1.4; text-align: center; }
 .spinner { width: 15px; height: 15px; display: inline-block; border: 2px solid rgba(255,255,255,.45); border-top-color: white; border-radius: 50%; animation: spin .7s linear infinite; }
 .spinner.dark { border-color: rgba(23,36,33,.16); border-top-color: var(--green); }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -168,6 +169,7 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border: 4px s
 .route-option { min-width: 0; padding: 9px 6px 8px; border: 1px solid var(--line); border-radius: 10px; background: white; text-align: center; color: var(--muted); }
 .route-option strong { display: block; color: var(--ink); font-size: 9.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .route-option span { display: block; margin-top: 3px; font-size: 8.5px; white-space: nowrap; }
+.route-option small { display: block; min-height: 20px; margin-top: 5px; color: var(--quiet); font-size: 7.7px; line-height: 1.25; }
 .route-option.active { border-color: var(--green); background: var(--green-pale); color: var(--green-dark); box-shadow: 0 0 0 1px var(--green); }
 .primary-stats { display: grid; grid-template-columns: repeat(3, 1fr); margin: 18px 0; }
 .primary-stats > div { padding-left: 13px; border-left: 1px solid var(--line); }

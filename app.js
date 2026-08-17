@@ -5,6 +5,8 @@ const API = {
   reverse: "https://photon.komoot.io/reverse"
 };
 
+const optimizer = window.RunflatOptimizer;
+
 const SF = {
   center: [-122.431, 37.7749],
   bounds: [[-122.56, 37.68], [-122.33, 37.86]],
@@ -29,6 +31,8 @@ const state = {
   mapReady: false,
   markers: {},
   routes: [],
+  candidateRoutes: [],
+  optimizationStats: null,
   selectedRoute: null,
   preference: 22,
   surface: "mixed",
@@ -67,6 +71,13 @@ function showMessage(message) {
 
 function clearMessage() {
   el("inlineMessage").hidden = true;
+}
+
+function setOptimizerStatus(message, mapMessage = message) {
+  el("optimizerStatus").textContent = message;
+  el("optimizerStatus").hidden = !message;
+  const mapStatus = el("mapLoading").querySelector("span:last-child");
+  if (mapStatus) mapStatus.textContent = mapMessage;
 }
 
 function isInsideSF(coords) {
@@ -422,12 +433,13 @@ function candidateLocations(direction) {
   return withVia.map(([lon, lat], index) => ({ lon, lat, type: index === 0 || index === withVia.length - 1 ? "break" : "through" }));
 }
 
-async function fetchRoute(direction, index) {
+async function fetchRouteSet(direction, seedOrder) {
   const walkwayFactors = { paved: 1.15, mixed: .9, paths: .65 };
   const hikingDifficulty = { paved: 0, mixed: 1, paths: 2 };
   const body = {
     locations: candidateLocations(direction),
     costing: "pedestrian",
+    alternates: 2,
     directions_options: { units: "miles", language: "en", format: "osrm" },
     costing_options: {
       pedestrian: {
@@ -439,16 +451,18 @@ async function fetchRoute(direction, index) {
     }
   };
   const data = await fetchJson(API.route, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }, 22000);
-  const result = data.routes?.[0];
-  if (!result?.geometry) throw new Error("No route found");
-  return {
-    id: `route-${index}`,
+  const results = (data.routes || []).filter((route) => route?.geometry);
+  if (!results.length) throw new Error("No route found");
+  return results.map((result, providerRouteIndex) => ({
+    id: `seed-${seedOrder}-${providerRouteIndex}`,
     coords: decodePolyline(result.geometry, 6),
     distance: result.distance / 1609.344,
     serviceDuration: result.duration,
     maneuvers: result.legs?.flatMap((leg) => leg.steps || []) || [],
-    candidateDirection: direction
-  };
+    candidateDirection: direction,
+    seedOrder,
+    providerRouteIndex
+  }));
 }
 
 function resampleLine(coords, count) {
@@ -471,62 +485,61 @@ function resampleLine(coords, count) {
 }
 
 async function addElevation(route) {
-  const count = Math.max(34, Math.min(82, Math.round(route.distance * 12)));
+  const count = Math.max(32, Math.min(96, Math.round((route.distance * 1609.344) / 60)));
   const samples = resampleLine(route.coords, count);
   const points = samples.map((sample) => `${sample.coords[1].toFixed(6)},${sample.coords[0].toFixed(6)}`).join("|");
   try {
     const data = await fetchJson(`${API.elevation}?z=12&encoding=mapbox&points=${encodeURIComponent(points)}`, {}, 18000);
-    const raw = data.points.map((point) => Number(point.elevation_m));
+    const raw = data.points?.map((point) => Number(point.elevation_m));
+    if (!raw || raw.length !== samples.length || raw.some((value) => !Number.isFinite(value))) throw new Error("Incomplete terrain profile");
     const smooth = raw.map((value, index) => {
       const start = Math.max(0, index - 1);
       const end = Math.min(raw.length, index + 2);
-      return raw.slice(start, end).reduce((sum, current) => sum + current, 0) / (end - start);
+      const window = raw.slice(start, end).sort((a, b) => a - b);
+      return window[Math.floor(window.length / 2)] ?? value;
     });
     let gainM = 0;
+    let descentM = 0;
     let maxGrade = 0;
+    let steepDistanceM = 0;
     for (let index = 1; index < smooth.length; index += 1) {
       const rise = smooth[index] - smooth[index - 1];
-      if (rise > .35) gainM += rise;
+      if (rise > .6) gainM += rise;
+      if (rise < -.6) descentM += Math.abs(rise);
       if (index >= 2) {
         const windowRise = smooth[index] - smooth[index - 2];
         const run = samples[index].distanceM - samples[index - 2].distanceM;
-        maxGrade = Math.max(maxGrade, (windowRise / Math.max(1, run)) * 100);
+        const grade = (windowRise / Math.max(1, run)) * 100;
+        maxGrade = Math.max(maxGrade, grade);
+        if (grade >= 5) steepDistanceM += samples[index].distanceM - samples[index - 1].distanceM;
       }
     }
     return {
       ...route,
       gain: Math.round((gainM * 3.28084) / 5) * 5,
+      gainM,
+      descent: Math.round((descentM * 3.28084) / 5) * 5,
       maxGrade: Math.max(0, maxGrade),
+      steepDistanceM,
+      elevationStatus: "ready",
       highPoint: Math.round(Math.max(...smooth) * 3.28084),
       lowPoint: Math.round(Math.min(...smooth) * 3.28084),
       profile: samples.map((sample, index) => ({ ...sample, elevationFt: smooth[index] * 3.28084 }))
     };
   } catch {
-    return { ...route, gain: null, maxGrade: null, highPoint: null, lowPoint: null, profile: null };
+    return { ...route, gain: null, gainM: null, descent: null, maxGrade: null, steepDistanceM: null, elevationStatus: "unavailable", highPoint: null, lowPoint: null, profile: null };
   }
 }
 
-function routeSignature(route) {
-  const sample = route.coords[Math.floor(route.coords.length / 2)] || route.coords[0];
-  return `${route.distance.toFixed(2)}:${sample[0].toFixed(3)}:${sample[1].toFixed(3)}`;
+function rankRoutes() {
+  return optimizer.rankRoutes(state.routes, state.preference);
 }
 
-function rankRoutes() {
-  if (!state.routes.length) return [];
-  const distances = state.routes.map((route) => route.distance);
-  const gains = state.routes.map((route) => route.gain).filter(Number.isFinite);
-  const minDistance = Math.min(...distances);
-  const maxDistance = Math.max(...distances);
-  const minGain = gains.length ? Math.min(...gains) : 0;
-  const maxGain = gains.length ? Math.max(...gains) : 0;
-  const distanceRange = Math.max(.05, maxDistance - minDistance);
-  const gainRange = Math.max(10, maxGain - minGain);
-  const shorterWeight = state.preference / 100;
-  return state.routes.map((route) => {
-    const distanceScore = (route.distance - minDistance) / distanceRange;
-    const gainScore = Number.isFinite(route.gain) ? (route.gain - minGain) / gainRange : .5;
-    return { ...route, score: shorterWeight * distanceScore + (1 - shorterWeight) * gainScore };
-  }).sort((a, b) => a.score - b.score);
+function refreshOptimizedRoutes() {
+  const result = optimizer.optimizeRoutes(state.candidateRoutes, state.preference);
+  state.routes = result.routes;
+  state.optimizationStats = result.stats;
+  return result.ranked;
 }
 
 async function planRoutes() {
@@ -540,23 +553,23 @@ async function planRoutes() {
   el("mapHint").hidden = true;
 
   try {
-    const attempts = await Promise.allSettled([fetchRoute(0, 0), fetchRoute(1, 1), fetchRoute(-1, 2)]);
+    setOptimizerStatus("Searching the pedestrian network for route variants…", "Searching runnable paths…");
+    const attempts = await Promise.allSettled([fetchRouteSet(0, 0), fetchRouteSet(1, 1), fetchRouteSet(-1, 2)]);
     if (version !== state.requestVersion) return;
-    const unique = [];
-    const signatures = new Set();
-    attempts.forEach((attempt) => {
-      if (attempt.status !== "fulfilled") return;
-      const signature = routeSignature(attempt.value);
-      if (!signatures.has(signature)) { signatures.add(signature); unique.push(attempt.value); }
-    });
+    const rawRoutes = attempts.flatMap((attempt) => attempt.status === "fulfilled" ? attempt.value : []);
+    const unique = optimizer.dedupeRoutes(rawRoutes, 6);
     if (!unique.length) throw new Error("We couldn’t find a runnable connection between those points.");
-    state.routes = await Promise.all(unique.map(addElevation));
+    setOptimizerStatus(`Found ${unique.length} distinct paths · sampling terrain…`, "Sampling elevation along each path…");
+    state.candidateRoutes = await Promise.all(unique.map(addElevation));
     if (version !== state.requestVersion) return;
-    const ranked = rankRoutes();
+    setOptimizerStatus(`Ranking ${unique.length} paths by climb, grade, and distance…`, "Finding the best tradeoffs…");
+    const ranked = refreshOptimizedRoutes();
     state.selectedRoute = ranked[0];
     renderResults();
     renderRoutesOnMap(true);
     el("routeResults").hidden = false;
+    const terrainCount = state.optimizationStats.terrain;
+    setOptimizerStatus(`Compared ${unique.length} distinct routes · terrain sampled on ${terrainCount}`, "Optimization complete");
     el("routeResults").scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "nearest" });
   } catch (error) {
     showMessage(error.message || "Routing is temporarily unavailable. Keep your pins in place and try again.");
@@ -575,8 +588,11 @@ async function planRoutes() {
 function clearRoutes() {
   state.requestVersion += 1;
   state.routes = [];
+  state.candidateRoutes = [];
+  state.optimizationStats = null;
   state.selectedRoute = null;
   el("routeResults").hidden = true;
+  setOptimizerStatus("");
   if (state.mapReady && state.map.getSource("route-options")) state.map.getSource("route-options").setData(emptyFeatureCollection());
   removeProfileMarker();
 }
@@ -588,7 +604,19 @@ function optionLabel(route) {
   if (flattest?.id === route.id && shortest.id === route.id) return "Best overall";
   if (flattest?.id === route.id) return "Flattest";
   if (shortest.id === route.id) return "Shortest";
-  return "Alternative";
+  return "Best balance";
+}
+
+function routeTradeoff(route) {
+  const shortest = state.routes.reduce((best, candidate) => candidate.distance < best.distance ? candidate : best);
+  const terrainRoutes = state.routes.filter((candidate) => Number.isFinite(candidate.gain));
+  const flattest = terrainRoutes.length ? terrainRoutes.reduce((best, candidate) => candidate.gain < best.gain ? candidate : best) : null;
+  const extraDistance = route.distance - shortest.distance;
+  const climbSaved = Number.isFinite(shortest.gain) && Number.isFinite(route.gain) ? shortest.gain - route.gain : 0;
+  if (route.id === shortest.id && flattest && flattest.id !== route.id && Number.isFinite(route.gain)) return `Direct · ${Math.max(0, route.gain - flattest.gain)} ft more climb`;
+  if (extraDistance > .05 && climbSaved > 10) return `+${extraDistance.toFixed(1)} mi · saves ${Math.round(climbSaved)} ft`;
+  if (route.id === flattest?.id) return extraDistance > .05 ? `Lowest climb · +${extraDistance.toFixed(1)} mi` : "Lowest climb · near-direct";
+  return "Similar distance and climb";
 }
 
 function selectRoute(routeId, fit = true) {
@@ -604,12 +632,14 @@ function renderResults() {
   const ranked = rankRoutes();
   const route = state.selectedRoute;
   const label = optionLabel(route);
-  el("resultBadge").textContent = label === "Flattest" || label === "Best overall" ? "Lowest-climb option found" : `${label} option`;
-  el("resultTitle").textContent = label === "Shortest" ? "The direct route" : label === "Flattest" ? "Your flatter route" : "A balanced route";
+  const rankedFirst = ranked[0]?.id === route.id;
+  el("resultBadge").textContent = rankedFirst ? `Best for ${preferenceName().toLowerCase()}` : "Selected route";
+  el("resultTitle").textContent = rankedFirst ? "Recommended route" : `${label} route`;
   el("routeOptions").innerHTML = ranked.map((candidate) => `
     <button class="route-option ${candidate.id === route.id ? "active" : ""}" type="button" role="radio" aria-checked="${candidate.id === route.id}" data-route-id="${candidate.id}">
       <strong>${escapeHtml(optionLabel(candidate))}</strong>
       <span>${candidate.distance.toFixed(1)} mi · ${Number.isFinite(candidate.gain) ? `+${candidate.gain} ft` : "elev. n/a"}</span>
+      <small>${escapeHtml(routeTradeoff(candidate))}</small>
     </button>`).join("");
   el("routeOptions").querySelectorAll(".route-option").forEach((button) => button.addEventListener("click", () => selectRoute(button.dataset.routeId)));
 
@@ -621,12 +651,16 @@ function renderResults() {
   el("midpointLabel").textContent = `${(route.distance / 2).toFixed(1)} mi`;
   el("elevationSummary").textContent = route.profile ? `${route.lowPoint}–${route.highPoint} ft · Copernicus estimate` : "Elevation service unavailable";
 
-  const rankedFirst = ranked[0]?.id === route.id;
   const flatDelta = Number.isFinite(route.gain) ? route.gain - Math.min(...state.routes.map((candidate) => Number.isFinite(candidate.gain) ? candidate.gain : Infinity)) : 0;
   const distanceDelta = route.distance - Math.min(...state.routes.map((candidate) => candidate.distance));
-  el("routeExplanation").textContent = rankedFirst
-    ? `Best match for your ${preferenceName().toLowerCase()} preference. We compared ${state.routes.length} pedestrian paths between your points using measured terrain elevation.`
-    : `${distanceDelta > .05 ? `${distanceDelta.toFixed(1)} mi longer than the shortest option` : "Near the shortest distance"}${flatDelta > 5 ? `, with ${Math.round(flatDelta)} ft more climb than the flattest` : ", and close to the lowest measured climb"}.`;
+  const shortest = state.routes.reduce((best, candidate) => candidate.distance < best.distance ? candidate : best);
+  const climbSaved = Number.isFinite(shortest.gain) && Number.isFinite(route.gain) ? shortest.gain - route.gain : 0;
+  let outcome = "This route offers a similar distance and climbing tradeoff.";
+  if (distanceDelta > .05 && climbSaved > 10) outcome = `This route adds ${distanceDelta.toFixed(1)} mi versus the direct option to avoid about ${Math.round(climbSaved)} ft of climbing.`;
+  else if (route.id === shortest.id && flatDelta > 10) outcome = `This is the shortest route, with about ${Math.round(flatDelta)} ft more climbing than the flattest option.`;
+  else if (Number.isFinite(route.gain) && flatDelta <= 10) outcome = distanceDelta > .05 ? `This is the lowest-climb route within the ${state.optimizationStats?.detourPercent || 30}% detour limit.` : "This route is both near-direct and among the lowest-climb options.";
+  const coverage = state.optimizationStats ? ` Compared ${state.optimizationStats.evaluated} distinct pedestrian routes; ${state.optimizationStats.frontier} remained on the distance–climb frontier.` : "";
+  el("routeExplanation").textContent = `${outcome}${coverage} Terrain values are Copernicus-based estimates sampled along each route.`;
   renderElevationChart(route);
   updateBookmark();
 }
@@ -685,10 +719,10 @@ function updatePreference(value) {
   el("preferenceRange").style.background = `linear-gradient(to right, var(--green) 0 ${percent}%, #d8ddda ${percent}% 100%)`;
   el("preferenceValue").textContent = preferenceName();
   el("preferenceCopy").textContent = state.preference < 35 ? "Favoring low elevation, even if it adds a little distance." : state.preference > 65 ? "Favoring the most direct runnable path." : "Balancing distance with measured elevation gain.";
-  if (state.routes.length) {
-    const previous = state.selectedRoute?.id;
-    const ranked = rankRoutes();
-    state.selectedRoute = ranked[0] || state.routes.find((route) => route.id === previous);
+  el("preferenceRange").setAttribute("aria-valuetext", `Preference: ${preferenceName()}`);
+  if (state.candidateRoutes.length) {
+    const ranked = refreshOptimizedRoutes();
+    state.selectedRoute = ranked[0];
     renderResults();
     renderRoutesOnMap(false);
   }
