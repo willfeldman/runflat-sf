@@ -2,15 +2,13 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#f3f0e8" />
-    <meta
-      name="description"
-      content="Build lower-climb running routes around San Francisco with Runflat."
-    />
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%23176b5b'/%3E%3Cpath d='M12 40c10 0 10-15 20-15s10 8 20 8M12 47h40' fill='none' stroke='white' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E" />
-    <title>Runflat — Fewer hills. Better runs.</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#f5f5f3" />
+    <meta name="description" content="Plan lower-climb running routes across San Francisco with real pedestrian routing and elevation data." />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%231a725f'/%3E%3Cpath d='M12 40c10 0 10-15 20-15s10 8 20 8M12 47h40' fill='none' stroke='white' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css" />
     <link rel="stylesheet" href="styles.css" />
+    <title>Runflat — Plan a flatter San Francisco run</title>
   </head>
   <body>
     <div class="app-shell">
@@ -19,200 +17,157 @@
           <span class="brand-mark" aria-hidden="true">
             <svg viewBox="0 0 32 32"><path d="M5 22.5c5.4 0 5.4-8.8 10.8-8.8s5.4 4.7 11.2 4.7"/><path d="M5 26.5h22"/></svg>
           </span>
-          <span>runflat</span>
+          <span>Runflat</span>
         </a>
-        <div class="header-actions">
-          <span class="city-pill"><span class="status-dot"></span>San Francisco</span>
-          <button class="saved-button" id="savedButton" type="button" aria-label="View saved routes">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 4.75h11v15l-5.5-3.5-5.5 3.5z"/></svg>
-            <span>Saved</span>
-            <span class="saved-count" id="savedCount">0</span>
-          </button>
+        <div class="header-center" aria-label="Current city">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s6-5.7 6-12a6 6 0 1 0-12 0c0 6.3 6 12 6 12Z"/><circle cx="12" cy="9" r="2.2"/></svg>
+          San Francisco
         </div>
+        <button class="saved-button" id="savedButton" type="button" aria-label="Saved routes, 0 saved">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 4.75h11v15l-5.5-3.5-5.5 3.5z"/></svg>
+          <span class="saved-label">Saved</span>
+          <span class="saved-count" id="savedCount" aria-hidden="true">0</span>
+        </button>
       </header>
 
       <main class="workspace">
         <aside class="planner" aria-label="Route planner">
+          <div class="sheet-handle" aria-hidden="true"></div>
           <section class="planner-intro">
-            <div class="eyebrow"><span>SF route builder</span><span class="eyebrow-line"></span></div>
-            <h1>Fewer hills.<br />Better runs.</h1>
-            <p>Pick your miles. We’ll find the flatter way through San Francisco.</p>
+            <p class="eyebrow">SF running routes</p>
+            <h1>Plan a flatter run.</h1>
+            <p>Choose two points. We’ll compare real walking routes and measure the climb.</p>
           </section>
 
-          <form id="routeForm" class="route-form">
-            <div class="field-group">
-              <label for="startLocation">Start near</label>
-              <div class="select-shell">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s6-5.7 6-12a6 6 0 1 0-12 0c0 6.3 6 12 6 12Z"/><circle cx="12" cy="9" r="2.2"/></svg>
-                <select id="startLocation" name="start">
-                  <option value="ferry">Ferry Building</option>
-                  <option value="marina">Marina Green</option>
-                  <option value="mission">Mission Bay</option>
-                  <option value="ggp">JFK Promenade</option>
-                  <option value="merced">Lake Merced</option>
-                </select>
-                <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 9.5 5 5 5-5"/></svg>
+          <section class="location-card" aria-label="Route locations">
+            <div class="location-rail" aria-hidden="true">
+              <span class="rail-dot start"></span><span class="rail-line"></span><span class="rail-dot end"></span>
+            </div>
+            <div class="location-fields">
+              <div class="place-field" data-field="start">
+                <label for="startInput">Start</label>
+                <input id="startInput" type="search" autocomplete="off" spellcheck="false" placeholder="Search or tap the map" />
+                <button class="clear-place" type="button" data-clear="start" aria-label="Clear start" hidden>×</button>
+                <div class="suggestions" id="startSuggestions" role="listbox" hidden></div>
+              </div>
+              <div class="field-divider"></div>
+              <div class="place-field" data-field="end">
+                <label for="endInput">End</label>
+                <input id="endInput" type="search" autocomplete="off" spellcheck="false" placeholder="Search or tap the map" />
+                <button class="clear-place" type="button" data-clear="end" aria-label="Clear end" hidden>×</button>
+                <div class="suggestions" id="endSuggestions" role="listbox" hidden></div>
+              </div>
+              <div class="place-field waypoint-field" id="waypointField" data-field="waypoint" hidden>
+                <div class="field-divider"></div>
+                <label for="waypointInput">Stop</label>
+                <input id="waypointInput" type="search" autocomplete="off" spellcheck="false" placeholder="Search or tap the map" />
+                <button class="clear-place" type="button" data-clear="waypoint" aria-label="Remove stop">×</button>
+                <div class="suggestions" id="waypointSuggestions" role="listbox" hidden></div>
               </div>
             </div>
-
-            <div class="field-group">
-              <div class="label-row">
-                <label for="distanceRange">Distance</label>
-                <output id="distanceOutput" for="distanceRange"><strong>5.0</strong> mi</output>
-              </div>
-              <input id="distanceRange" type="range" min="2" max="10" value="5" step="0.5" />
-              <div class="distance-scale" aria-hidden="true"><span>2 mi</span><span>6 mi</span><span>10 mi</span></div>
-              <div class="quick-distances" aria-label="Quick distance choices">
-                <button type="button" data-distance="3">3 mi</button>
-                <button type="button" class="active" data-distance="5">5 mi</button>
-                <button type="button" data-distance="8">8 mi</button>
-                <button type="button" data-distance="10">10 mi</button>
-              </div>
-            </div>
-
-            <fieldset class="field-group">
-              <legend>Route priority</legend>
-              <div class="segmented" role="radiogroup" aria-label="Route priority">
-                <button class="active" type="button" role="radio" aria-checked="true" data-priority="flat">
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 15h7l2-5 2 5h7"/></svg>
-                  Flattest
-                </button>
-                <button type="button" role="radio" aria-checked="false" data-priority="balanced">Balanced</button>
-                <button type="button" role="radio" aria-checked="false" data-priority="near">Nearest</button>
-              </div>
-            </fieldset>
-
-            <fieldset class="field-group surface-group">
-              <legend>Surface</legend>
-              <div class="surface-options">
-                <label><input type="radio" name="surface" value="any" checked /><span>Any</span></label>
-                <label><input type="radio" name="surface" value="paved" /><span>Paved</span></label>
-                <label><input type="radio" name="surface" value="trail" /><span>Trail</span></label>
-              </div>
-            </fieldset>
-
-            <button class="find-button" id="findButton" type="submit">
-              <span class="button-label"><span>Find my route</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M14 7l5 5-5 5"/></svg></span>
-              <span class="button-loading"><span class="spinner"></span>Comparing elevation…</span>
+            <button class="swap-button" id="swapButton" type="button" aria-label="Swap start and end">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4 5 7l3 3M5 7h11a3 3 0 0 1 3 3v1M16 20l3-3-3-3M19 17H8a3 3 0 0 1-3-3v-1"/></svg>
             </button>
-          </form>
-
-          <section class="results-section" aria-labelledby="resultsHeading">
-            <div class="results-header">
-              <h2 id="resultsHeading">Best matches</h2>
-              <span id="resultCount">3 routes</span>
-            </div>
-            <div id="routeResults" class="route-results" aria-live="polite"></div>
           </section>
-        </aside>
 
-        <section class="map-panel" aria-label="Route map">
-          <svg class="sf-map" id="sfMap" viewBox="0 0 900 820" role="img" aria-labelledby="mapTitle mapDesc">
-            <title id="mapTitle">San Francisco running route map</title>
-            <desc id="mapDesc">A stylized map showing selectable lower-climb running routes in San Francisco.</desc>
-            <defs>
-              <pattern id="water-lines" width="38" height="38" patternUnits="userSpaceOnUse" patternTransform="rotate(-18)">
-                <path d="M0 19H38" stroke="#a8c7ca" stroke-width="1" opacity=".33" />
-              </pattern>
-              <filter id="route-shadow" x="-20%" y="-20%" width="140%" height="140%">
-                <feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#15352f" flood-opacity=".22" />
-              </filter>
-            </defs>
-            <rect width="900" height="820" fill="#c9dcdb" />
-            <rect width="900" height="820" fill="url(#water-lines)" />
-            <path class="land" d="M90 0H524l15 78 49 43 7 54 65 53 65 28 38 63 88 59 49 83v359H158l-22-64 12-53-25-64 22-80-42-92 34-75-31-82 34-75-30-69 32-65Z" />
-            <path class="park" d="M129 432 474 372l37 131-350 80-27-60Z" />
-            <path class="park small" d="M408 183l87-19 23 81-83 18Z" />
-            <path class="park small" d="M282 647l191-18 12 101-215 13Z" />
-            <g class="street-grid" aria-hidden="true">
-              <path d="M164 51 760 403M138 103 729 454M128 163 716 512M117 222 686 568M121 289 673 627M137 353 656 681" />
-              <path d="M204 0 137 584M272 0 161 650M344 0 206 718M415 0 292 770M486 37 390 804M543 100 491 810M602 173 594 817M661 242 692 818M735 306 791 818" />
-              <path class="arterial" d="M512 76C486 175 497 255 540 337s59 159 40 237-10 151 46 238" />
-              <path class="arterial" d="M142 367c133-25 281-36 429-13 85 13 171 48 249 107" />
-            </g>
-            <g class="shore-detail" aria-hidden="true">
-              <path d="M514 0c-14 88 11 151 82 195 90 55 195 85 304 258" />
-              <path d="M664 332c81 24 158 68 236 129" />
-            </g>
-            <g class="map-labels" aria-hidden="true">
-              <text x="465" y="126">MARINA</text>
-              <text x="548" y="275">NORTH BEACH</text>
-              <text x="634" y="426">DOWNTOWN</text>
-              <text x="438" y="476">HAIGHT</text>
-              <text x="518" y="609">MISSION</text>
-              <text x="294" y="493">GOLDEN GATE PARK</text>
-              <text x="589" y="726">MISSION BAY</text>
-              <text class="water-label" x="718" y="192">SAN FRANCISCO BAY</text>
-              <text class="water-label" x="35" y="610" transform="rotate(-90 35 610)">PACIFIC OCEAN</text>
-            </g>
-            <g id="routeLayer" class="route-layer"></g>
-            <g id="markerLayer" class="marker-layer"></g>
-          </svg>
+          <button class="map-prompt" id="mapPrompt" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 6 5-2 6 2 5-2v14l-5 2-6-2-5 2zM9 4v14M15 6v14"/></svg>
+            <span>Tap the map to set your start</span>
+          </button>
 
-          <div class="map-topbar">
-            <div class="map-status"><span class="pulse-dot"></span><span id="mapStatus">3 low-climb routes found</span></div>
-            <div class="map-tools" aria-label="Map controls">
-              <button id="labelsToggle" type="button" aria-pressed="true" aria-label="Toggle map labels">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 6 5-2 6 2 5-2v14l-5 2-6-2-5 2zM9 4v14M15 6v14"/></svg>
-              </button>
-              <button id="locateButton" type="button" aria-label="Use approximate location">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+          <section class="preference-section">
+            <div class="section-heading">
+              <div><h2>Prefer</h2><p id="preferenceCopy">Favoring low elevation, even if it adds a little distance.</p></div>
+              <output id="preferenceValue" for="preferenceRange">Flatter</output>
+            </div>
+            <input id="preferenceRange" type="range" min="0" max="100" step="1" value="22" aria-label="Route preference from flatter to shorter" />
+            <div class="preference-scale" aria-hidden="true"><span>Flatter</span><span>Balanced</span><span>Shorter</span></div>
+          </section>
+
+          <details class="customize" id="customizePanel">
+            <summary>
+              <span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h3M11 17h9M14 4v6M7 14v6"/></svg>Customize</span>
+              <svg class="disclosure" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 9.5 5 5 5-5"/></svg>
+            </summary>
+            <div class="customize-body">
+              <fieldset>
+                <legend>Surface feel</legend>
+                <div class="segmented" id="surfaceControl">
+                  <label><input type="radio" name="surface" value="paved" /><span>Paved</span></label>
+                  <label><input type="radio" name="surface" value="mixed" checked /><span>Mixed</span></label>
+                  <label><input type="radio" name="surface" value="paths" /><span>Paths</span></label>
+                </div>
+              </fieldset>
+              <div class="custom-row">
+                <label for="paceSelect"><span>Running pace</span><small>Used for time estimate</small></label>
+                <select id="paceSelect">
+                  <option value="8">8:00 /mi</option><option value="9">9:00 /mi</option><option value="10" selected>10:00 /mi</option><option value="11">11:00 /mi</option><option value="12">12:00 /mi</option>
+                </select>
+              </div>
+              <label class="toggle-row">
+                <span><strong>Avoid stairs</strong><small>Prefer continuous paths when possible</small></span>
+                <input id="avoidStairs" type="checkbox" checked /><span class="toggle" aria-hidden="true"></span>
+              </label>
+              <button class="add-stop-button" id="addStopButton" type="button">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Add a stop
               </button>
             </div>
-          </div>
+          </details>
 
-          <article class="route-detail" id="routeDetail" aria-live="polite">
-            <div class="detail-copy">
-              <div class="detail-kicker"><span id="detailRank">Best match</span><span>·</span><span id="detailSurface">Mostly paved</span></div>
-              <div class="detail-title-row">
-                <div>
-                  <h2 id="detailName">Embarcadero Lowline</h2>
-                  <p id="detailSummary">Waterfront miles with barely a bump.</p>
-                </div>
-                <button class="bookmark-button" id="bookmarkButton" type="button" aria-label="Save this route" aria-pressed="false">
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 4.75h11v15l-5.5-3.5-5.5 3.5z"/></svg>
-                </button>
-              </div>
-              <div class="detail-stats">
-                <div><strong id="detailDistance">5.0</strong><span>miles</span></div>
-                <div><strong id="detailGain">+58</strong><span>ft gain</span></div>
-                <div><strong id="detailGrade">1.8%</strong><span>max grade</span></div>
-                <div><strong id="detailTime">~51</strong><span>minutes</span></div>
-              </div>
+          <div class="inline-message" id="inlineMessage" role="status" aria-live="polite" hidden></div>
+          <button class="plan-button" id="planButton" type="button" disabled>
+            <span class="plan-label">Choose a start and end</span>
+            <span class="plan-loading"><span class="spinner"></span>Comparing elevation…</span>
+          </button>
+
+          <section class="route-results" id="routeResults" aria-labelledby="resultTitle" hidden>
+            <div class="result-heading">
+              <div><p id="resultBadge">Lowest-climb option</p><h2 id="resultTitle">Your flatter route</h2></div>
+              <button class="bookmark-button" id="bookmarkButton" type="button" aria-label="Save this route" aria-pressed="false">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 4.75h11v15l-5.5-3.5-5.5 3.5z"/></svg>
+              </button>
+            </div>
+            <div class="route-options" id="routeOptions" role="radiogroup" aria-label="Route options"></div>
+            <div class="primary-stats">
+              <div><strong id="distanceStat">—</strong><span>miles</span></div>
+              <div><strong id="gainStat">—</strong><span>ft gain</span></div>
+              <div><strong id="timeStat">—</strong><span>estimated</span></div>
             </div>
             <div class="elevation-card">
-              <div class="elevation-header"><span>Elevation</span><span id="elevationRange">8–31 ft</span></div>
-              <svg id="elevationChart" viewBox="0 0 320 90" role="img" aria-label="Route elevation profile"></svg>
-              <div class="elevation-axis"><span>Start</span><span id="elevationMid">2.5 mi</span><span>Finish</span></div>
+              <div class="elevation-heading"><span>Elevation</span><span id="elevationSummary">Estimated terrain profile</span></div>
+              <svg id="elevationChart" viewBox="0 0 360 112" role="img" aria-label="Route elevation profile"></svg>
+              <div class="elevation-axis"><span>Start</span><span id="midpointLabel">— mi</span><span>Finish</span></div>
             </div>
-            <div class="detail-actions">
-              <button class="why-button" id="whyButton" type="button" aria-expanded="false">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.7 2.7 0 0 1 5.2.9c0 2.1-2.7 2.3-2.7 4.1M12 17.5h.01"/></svg>
-                Why this route?
-              </button>
-              <button class="start-button" id="startButton" type="button">View run plan <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M14 7l5 5-5 5"/></svg></button>
+            <div class="secondary-stats">
+              <div><span>Steepest section</span><strong id="gradeStat">—</strong></div>
+              <div><span>Highest point</span><strong id="highStat">—</strong></div>
             </div>
-            <p class="why-copy" id="whyCopy" hidden></p>
-          </article>
+            <p class="route-explanation" id="routeExplanation"></p>
+          </section>
 
-          <div class="demo-note">Curated route preview · Check live conditions before you run</div>
+          <p class="data-credit">Route & elevation by <a href="https://trailsplits.com/api" target="_blank" rel="noreferrer">TrailSplits</a> · Map © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a></p>
+        </aside>
+
+        <section class="map-panel" aria-label="Interactive San Francisco route map">
+          <div id="map"></div>
+          <div class="map-mode" aria-label="Map placement mode">
+            <span>Place</span>
+            <button class="active" type="button" data-map-mode="start" aria-pressed="true"><i class="mini-dot start"></i>Start</button>
+            <button type="button" data-map-mode="end" aria-pressed="false"><i class="mini-dot end"></i>End</button>
+            <button id="waypointModeButton" type="button" data-map-mode="waypoint" aria-pressed="false" hidden><i class="mini-dot waypoint"></i>Stop</button>
+          </div>
+          <div class="map-actions">
+            <button id="locateButton" type="button" aria-label="Use my current location"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
+            <button id="resetMapButton" type="button" aria-label="Reset map view"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11a8 8 0 1 1 2 5.3M4 16v-5h5"/></svg></button>
+          </div>
+          <div class="map-hint" id="mapHint"><span class="hint-dot"></span><span>Tap anywhere to set your start</span></div>
+          <div class="map-loading" id="mapLoading" hidden><span class="spinner dark"></span><span>Finding runnable paths…</span></div>
+          <div class="map-error" id="mapError" hidden><strong>Map couldn’t load</strong><span>Check your connection and refresh.</span></div>
         </section>
       </main>
     </div>
-
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <div class="modal-backdrop" id="modalBackdrop" hidden>
-      <section class="run-modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-        <button class="modal-close" id="modalClose" type="button" aria-label="Close run plan">×</button>
-        <span class="modal-icon" aria-hidden="true">↗</span>
-        <p class="modal-kicker">Your flat plan</p>
-        <h2 id="modalTitle">Ready when you are.</h2>
-        <p id="modalRouteCopy"></p>
-        <div class="modal-steps" id="modalSteps"></div>
-        <button class="modal-done" id="modalDone" type="button">Got it</button>
-        <small>Demo routes are curated guides, not turn-by-turn navigation.</small>
-      </section>
-    </div>
+    <script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
     <script src="app.js"></script>
   </body>
 </html>
